@@ -75,12 +75,20 @@ LSB değişikliği istatistiksel olarak **tespit edilmesi en zor** olan alt küm
 ## Tespit (Steganalysis) ve Savunma
 
 ### Chi-Square Saldırısı
-LSB gömme: çift-tek piksel çiftlerinin dağılımını bozar.  
-Savunma: rastgele piksel sırası (seed ile karıştır).
+LSB gömme: çift-tek piksel çiftlerinin dağılımını bozar.
+Savunma: LSB Eşleştirme (±1) — bkz. `embed.py`. Uygulandı: `lsb_encoder.py`,
+`video_encoder.py`, `audio_encoder.py`.
+
+### Sabit Konum Taraması
+Header her zaman aynı yerdeyse (kare 0 / örnek 0), o konumu tarayan bir araç
+şifreli içerik olsa bile "steganografi var" diyebilir.
+Savunma: parola-tohumlu, bellek-sınırlı iki seviyeli konum karıştırma — bkz.
+`positions.py`, `crypto.derive_shuffle_seed`. Uygulandı: parola verildiğinde
+video/audio pipeline'ları flag 0x02 ile karışık sırada gömer.
 
 ### RS (Regular-Singular) Analizi
-Daha güçlü istatistiksel test.  
-Savunma: sadece bazı kanalları kullan, tüm pikseli değil.
+Daha güçlü istatistiksel test.
+Savunma: henüz uygulanmadı — bkz. README.md "Roadmap ideas".
 
 ---
 
