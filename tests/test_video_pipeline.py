@@ -45,6 +45,67 @@ class TestVideoPipeline(unittest.TestCase):
         with self.assertRaises(ValueError):
             decode(self.stego_path, self.recover_dir, password="yanlis-parola")
 
+    def test_wrong_password_error_is_not_masked_by_fallback_reader(self):
+        """
+        Regresyon: decode_payload iki okuyucuyu (karisik, sonra sirali) sirayla
+        dener. Yanlis parola durumunda ilk (karisik) okuyucu header'i bulamaz;
+        eskiden bu durum genel bir ValueError olarak yakalanip sirali okuyucuya
+        dusuluyordu ve o da basarisiz olunca son mesaj hep "imza bulunamadi"
+        oluyordu -- gercek sebep (yanlis sifre) mesajdan kayboluyordu. Artik
+        yalnizca _MagicNotFound yakalaniyor ve nihai mesaj bunu ipucu olarak
+        belirtiyor.
+        """
+        encode(self.noise_path, self.secret_path, self.stego_path, password="dogru-parola")
+        with self.assertRaises(ValueError) as ctx:
+            decode(self.stego_path, self.recover_dir, password="yanlis-parola")
+        self.assertIn("şifre", str(ctx.exception).lower())
+
+    def test_corrupted_ciphertext_with_correct_password_gives_real_error(self):
+        """
+        Regresyon: header dogru parolayla bulunduktan SONRA AES-GCM cozumu
+        basarisiz olursa (bozuk veri), hata "imza bulunamadi" ile
+        maskelenmemeli -- gercek "sifre cozme basarisiz" mesaji gelmeli.
+        """
+        import cv2
+        from crypto import derive_shuffle_seed
+        from positions import block_and_intra_order
+
+        encode(self.noise_path, self.secret_path, self.stego_path, password="dogru-parola")
+
+        cap = cv2.VideoCapture(self.stego_path)
+        frames = []
+        while True:
+            ret, f = cap.read()
+            if not ret:
+                break
+            frames.append(f)
+        cap.release()
+
+        h, w, c = frames[0].shape
+        frame_size = h * w * c
+        total_bits = frame_size * len(frames)
+        seed = derive_shuffle_seed("dogru-parola", total_bits)
+        block_order, intra_order = block_and_intra_order(seed, len(frames), frame_size)
+        target_frame = block_order[0]
+
+        flat = frames[target_frame].flatten()
+        pos = intra_order[200]  # header(40) + cipher_size(64) bitinin cok otesinde -> ciphertext govdesi
+        flat[pos] = flat[pos] ^ 1
+        frames[target_frame] = flat.reshape(frames[target_frame].shape)
+
+        corrupt_path = os.path.join(self.tmp.name, "corrupt.avi")
+        fourcc = cv2.VideoWriter_fourcc(*"RGBA")
+        writer = cv2.VideoWriter(corrupt_path, fourcc, FPS, (w, h))
+        for fr in frames:
+            writer.write(fr)
+        writer.release()
+
+        with self.assertRaises(ValueError) as ctx:
+            decode(corrupt_path, self.recover_dir, password="dogru-parola")
+        msg = str(ctx.exception).lower()
+        self.assertNotIn("imzası bulunamadı", msg)
+        self.assertIn("şifre çözme başarısız", msg)
+
     def test_missing_password_raises(self):
         encode(self.noise_path, self.secret_path, self.stego_path, password="dogru-parola")
         with self.assertRaises(ValueError):

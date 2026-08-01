@@ -10,6 +10,7 @@ Anahtar türetme : PBKDF2-HMAC-SHA256 (600_000 iterasyon, OWASP önerisi)
 """
 
 import os
+import struct
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -74,7 +75,6 @@ SHUFFLE_DOMAIN = b"LSTG-shuffle-v1"
 
 def derive_shuffle_seed(password: str, capacity_bits: int) -> int:
     """Şifreden, taşıyıcı kapasitesine bağlı 64-bit bir RNG tohumu türetir."""
-    import struct
     salt = SHUFFLE_DOMAIN + struct.pack(">Q", capacity_bits)
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),

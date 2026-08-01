@@ -199,8 +199,11 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("video", nargs="?", default=None)
-    parser.add_argument("--password", default=None)
+    parser.add_argument("--password", default=None,
+                         help="Elle CLI'dan calistirirken kullanin — app.py "
+                              "sifreyi LSTG_PLAYER_PASSWORD ortam degiskeniyle geçirir")
     args = parser.parse_args()
+    pw_from_env = os.environ.pop("LSTG_PLAYER_PASSWORD", None)
 
     stego = args.video if args.video and os.path.exists(args.video) else STEGO_VIDEO
 
@@ -210,7 +213,7 @@ def main():
         frames = load_frames(stego)
     else:
         print(f"Stego video: {stego}")
-        pw = args.password
+        pw = args.password or pw_from_env
         try:
             recovered, _ = video_decode(stego, RECOVER_DIR, password=pw or None)
             with open(recovered, "r", encoding="utf-8") as f:

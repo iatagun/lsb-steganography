@@ -58,6 +58,8 @@ def encode(video_path: str, file_path: str, output_path: str,
 
     print(f"Video yukleniyor: {video_path}")
     frames, fps = read_video_frames(video_path)
+    if not frames:
+        raise ValueError("Video bos (0 kare) — kapasite hesaplanamaz.")
 
     h, w, c = frames[0].shape
     frame_size = h * w * c

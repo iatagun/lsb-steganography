@@ -84,13 +84,23 @@ def _extract_inner_to_file(inner: bytes, output_dir: str) -> str:
     return out_path
 
 
+class _MagicNotFound(ValueError):
+    """
+    Yalnızca 'bu okuma sırası (sıralı/karışık) burada bir header bulamadı'
+    anlamına gelir — decode_payload bunu görünce bir sonraki sırayı dener.
+    AES/kapasite/iç-tutarlılık hataları düz ValueError kalır ve asla
+    yutulmaz: header zaten doğru bulunduysa (yani doğru sıradaysak) asıl
+    hatanın üstü bir sonraki denemenin "bulunamadı" mesajıyla örtülmemeli.
+    """
+
+
 def _decode_from_reader(read_bits, total_bits: int, output_dir: str,
                          password: str | None) -> tuple[str, bool]:
     hdr_bits = read_bits(MIN_HDR_BYTES * 8)
     hdr_raw  = bits_to_bytes(hdr_bits)
 
     if hdr_raw[:4] != MAGIC:
-        raise ValueError(
+        raise _MagicNotFound(
             f"LSTG imzası bulunamadı (okunan: {hdr_raw[:4]!r})."
         )
 
@@ -139,8 +149,9 @@ def decode_payload(readers: list, total_bits: int, output_dir: str,
     for read_bits in readers:
         try:
             return _decode_from_reader(read_bits, total_bits, output_dir, password)
-        except ValueError as e:
+        except _MagicNotFound as e:
             last_err = e
             continue
-    hint = "" if password else " (şifreliyse --password ile deneyin)"
+    hint = (" (yanlış şifre ya da bu taşıyıcıda gömülü veri yok olabilir)" if password
+            else " (şifreliyse --password ile deneyin)")
     raise ValueError(f"{last_err}{hint}")

@@ -865,13 +865,17 @@ class HidePanel(ScrollPanel):
         stego = self.stego_out.get()
         pw    = self.password.get()
         args  = [sys.executable, _p("player.py")]
+        # Şifreyi argv'ye değil ortam değişkenine koy — CLI argümanları
+        # Görev Yöneticisi / ps gibi araçlarla süreç boyunca herkese açık
+        # görünür, ortam değişkeni bu yolla listelenmez.
+        env = os.environ.copy()
         if stego and os.path.exists(stego):
             args.append(stego)
             if pw:
-                args += ["--password", pw]
+                env["LSTG_PLAYER_PASSWORD"] = pw
         self.log("Oynatıcı açılıyor...", "dim")
         try:
-            subprocess.Popen(args, cwd=_p())
+            subprocess.Popen(args, cwd=_p(), env=env)
         except Exception as e:
             self.log(f"HATA: {e}", "err")
 
