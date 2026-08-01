@@ -8,6 +8,7 @@ import numpy as np
 import cv2
 import argparse
 import os
+import sys
 
 
 # Kayıpsız codec — JPEG/H.264/MP4 LSB'leri yok eder!
@@ -61,6 +62,8 @@ def generate_noise_video(
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Hareketli karıncalı ekran video üretici")
     parser.add_argument("--output",   default="noise_video.avi", help="Çıktı AVI dosyası")
     parser.add_argument("--width",    type=int,   default=256,  help="Genişlik")

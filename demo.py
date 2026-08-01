@@ -51,6 +51,8 @@ def separator(title: str):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     print("=" * 60)
     print("  LSB STEGANOGRAFİ — UÇTAN UCA DEMO")
     print("=" * 60)

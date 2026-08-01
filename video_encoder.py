@@ -1,50 +1,22 @@
 """
-video_encoder.py — Video LSB Steganografi Encoder (AES-256-GCM destekli)
+video_encoder.py — Video LSB Steganografi Encoder (AES-256-GCM + karışık gömme destekli)
 
-Payload formatı:
-  [LSTG][flags:1][...rest...]
-
-  flags=0x00 (düz):     [LSTG][0x00][data_size:8][name_len:2][filename][data]
-  flags=0x01 (şifreli): [LSTG][0x01][cipher_size:8][salt+nonce+GCM(data_size+name_len+filename+data)]
+Şifresizken : payload sıralı gömülür (kare 0'dan başlar), LSB eşleştirme (±1) kullanılır.
+Şifreliyken : payload parola+kapasiteden türeyen bir sırayla (kare sırası + kare-içi
+              konum sırası karışık) gömülür — LSTG imzası bile sabit bir konumda
+              bulunmaz. Bkz. positions.py, payload.py, embed.py, crypto.py.
 """
 
 import numpy as np
 import cv2
-import struct
 import os
 import sys
 import argparse
 
-MAGIC      = b"LSTG"
-FLAG_PLAIN = b"\x00"
-FLAG_ENC   = b"\x01"
-
-
-def _raw_payload(file_data: bytes, filename: str) -> bytes:
-    name_bytes = filename.encode("utf-8")
-    return (
-        struct.pack(">Q", len(file_data))
-        + struct.pack(">H", len(name_bytes))
-        + name_bytes
-        + file_data
-    )
-
-
-def build_payload_bits(file_data: bytes, filename: str,
-                       password: str | None = None) -> list[int]:
-    inner = _raw_payload(file_data, filename)
-    if password:
-        from crypto import encrypt as aes_encrypt
-        ciphertext = aes_encrypt(inner, password)
-        raw = MAGIC + FLAG_ENC + struct.pack(">Q", len(ciphertext)) + ciphertext
-    else:
-        raw = MAGIC + FLAG_PLAIN + inner
-
-    bits = []
-    for byte in raw:
-        for i in range(7, -1, -1):
-            bits.append((byte >> i) & 1)
-    return bits
+from payload import build_payload, bytes_to_bits
+from positions import block_and_intra_order
+from embed import lsb_embed
+from crypto import derive_shuffle_seed
 
 
 def read_video_frames(path: str) -> tuple[list[np.ndarray], float]:
@@ -80,45 +52,61 @@ def encode(video_path: str, file_path: str, output_path: str,
     filename = os.path.basename(file_path)
 
     if password:
-        print(f"  Sifreleniyor (AES-256-GCM)...")
-    payload_bits = build_payload_bits(file_data, filename, password)
+        print("  Sifreleniyor (AES-256-GCM)...")
+    raw, flag = build_payload(file_data, filename, password)
+    payload_bits = np.array(bytes_to_bits(raw), dtype=np.uint8)
 
     print(f"Video yukleniyor: {video_path}")
     frames, fps = read_video_frames(video_path)
 
     h, w, c = frames[0].shape
-    total_lsb_bits = h * w * c * len(frames)
-    if len(payload_bits) > total_lsb_bits:
+    frame_size = h * w * c
+    n_frames = len(frames)
+    total_lsb_bits = frame_size * n_frames
+    n_bits = len(payload_bits)
+    if n_bits > total_lsb_bits:
         cap_b = total_lsb_bits // 8
         raise ValueError(
             f"Dosya cok buyuk! Dosya: {len(file_data):,} byte, "
             f"Video kapasitesi: {cap_b:,} byte"
         )
 
-    print(f"  {len(frames)} kare yuklendi ({w}x{h})")
+    print(f"  {n_frames} kare yuklendi ({w}x{h})")
     print(f"  Kapasite: {total_lsb_bits//8:,} byte | "
-          f"Payload: {len(payload_bits)//8:,} byte | "
-          f"Doluluk: {len(payload_bits)/total_lsb_bits*100:.3f}%")
+          f"Payload: {n_bits//8:,} byte | "
+          f"Doluluk: {n_bits/total_lsb_bits*100:.3f}%")
 
+    if password:
+        seed = derive_shuffle_seed(password, total_lsb_bits)
+        block_order, intra_order = block_and_intra_order(seed, n_frames, frame_size)
+        print("  Konum karistirma aktif (parola tohumlu) — imza sabit yerde degil.")
+    else:
+        block_order = np.arange(n_frames)
+        intra_order = np.arange(frame_size)
+
+    rng = np.random.default_rng()  # yalnizca LSB eslestirme yon rastgeleligi icin
     bit_idx = 0
-    n_bits  = len(payload_bits)
-    for frame_i, frame in enumerate(frames):
+    frames_touched = 0
+    for f in block_order:
         if bit_idx >= n_bits:
             break
-        flat = frame.flatten()
-        end  = min(bit_idx + len(flat), n_bits)
-        for j, bit in enumerate(payload_bits[bit_idx:end]):
-            flat[j] = (flat[j] & 0xFE) | bit
-        frames[frame_i] = flat.reshape(frame.shape)
-        bit_idx = end
+        flat = frames[f].flatten()
+        take = min(frame_size, n_bits - bit_idx)
+        idxs = intra_order[:take]
+        flat[idxs] = lsb_embed(flat[idxs], payload_bits[bit_idx:bit_idx + take], rng)
+        frames[f] = flat.reshape(frames[f].shape)
+        bit_idx += take
+        frames_touched += 1
 
     write_video_frames(frames, output_path, fps)
     enc_label = " [AES-256-GCM SIFRELI]" if password else ""
     print(f"Dosya gomuldu{enc_label}: {output_path}")
-    print(f"  '{filename}' ({len(file_data):,} byte) — {min(frame_i+1, len(frames))}/{len(frames)} kare")
+    print(f"  '{filename}' ({len(file_data):,} byte) — {frames_touched}/{n_frames} kare kullanildi")
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Video LSB Encoder")
     parser.add_argument("video")
     parser.add_argument("file")

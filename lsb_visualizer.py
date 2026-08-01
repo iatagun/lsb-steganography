@@ -109,12 +109,12 @@ def visualize(original_path: str, stego_path: str, output_path: str | None = Non
     if output_path:
         plt.savefig(output_path, dpi=150, bbox_inches="tight",
                     facecolor=fig.get_facecolor())
-        print(f"✅ Görselleştirme kaydedildi: {output_path}")
+        print(f"Görselleştirme kaydedildi: {output_path}")
     else:
         plt.show()
 
     print(f"   Değişen piksel : {changed:,} / {total:,} ({changed/total*100:.3f}%)")
-    print(f"   PSNR           : {psnr_val:.2f} dB  ({'görünmez ✅' if psnr_val > 40 else 'dikkat ⚠️'})")
+    print(f"   PSNR           : {psnr_val:.2f} dB  ({'görünmez' if psnr_val > 40 else 'dikkat'})")
 
 
 def _psnr(orig: np.ndarray, stego: np.ndarray) -> float:
@@ -126,6 +126,8 @@ def _psnr(orig: np.ndarray, stego: np.ndarray) -> float:
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="LSB Steganografi — Görselleştirici")
     parser.add_argument("original", help="Orijinal PNG görüntüsü")
     parser.add_argument("stego",    help="Stego PNG görüntüsü")

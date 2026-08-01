@@ -67,6 +67,8 @@ def sep(title: str):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     print("=" * 60)
     print("  VIDEO LSB STEGANOGRAFI — UCTAN UCA DEMO")
     print("=" * 60)

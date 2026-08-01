@@ -60,3 +60,27 @@ def decrypt(blob: bytes, password: str) -> bytes:
         return aesgcm.decrypt(nonce, ciphertext, None)
     except Exception:
         raise ValueError("Şifre çözme başarısız — yanlış şifre veya bozuk veri.")
+
+
+# ── Konum Karıştırma Anahtarı ────────────────────────────────────────────────
+# Gömme sırasını (hangi piksel/örnek hangi payload bitini taşır) şifreleme
+# anahtarından TAMAMEN bağımsız türetilir — aynı anahtar iki farklı amaç için
+# (gizlilik + konum) tekrar kullanılmaz. Taşıyıcının bit kapasitesi context'e
+# dahil edilir ki aynı şifre farklı boyuttaki taşıyıcılarda farklı sıralama
+# üretsin (aksi halde aynı şifre + aynı boyut ürünlerinde desen tekrar eder —
+# ponytail: kalan risk düşük çünkü içerik zaten AES-GCM ile şifreli).
+SHUFFLE_DOMAIN = b"LSTG-shuffle-v1"
+
+
+def derive_shuffle_seed(password: str, capacity_bits: int) -> int:
+    """Şifreden, taşıyıcı kapasitesine bağlı 64-bit bir RNG tohumu türetir."""
+    import struct
+    salt = SHUFFLE_DOMAIN + struct.pack(">Q", capacity_bits)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=8,
+        salt=salt,
+        iterations=ITERATIONS,
+    )
+    seed_bytes = kdf.derive(password.encode("utf-8"))
+    return int.from_bytes(seed_bytes, "big")

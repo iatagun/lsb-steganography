@@ -71,6 +71,8 @@ def decode(image_path: str) -> str:
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="LSB Steganografi — Decoder")
     parser.add_argument("image", help="Stego PNG görüntüsü")
     parser.add_argument("--output", default=None, help="Mesajı dosyaya yaz (opsiyonel)")

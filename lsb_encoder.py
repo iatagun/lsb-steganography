@@ -6,12 +6,16 @@ Header yapısı (ilk 32 bit):
   [31..0] = mesaj uzunluğu (byte cinsinden, big-endian)
 
 Ardından mesaj bitleri: piksel satır→sütun, kanal R→G→B sırasıyla.
+LSB Eşleştirme (±1) kullanılır — bkz. embed.py — düz bit-değiştirmenin
+Chi-Square saldırısına karşı bıraktığı çift/tek piksel izini azaltır.
 """
 
 import numpy as np
 from PIL import Image
 import argparse
 import sys
+
+from embed import lsb_embed
 
 
 HEADER_BITS = 32          # 4 byte → max 4 GB mesaj uzunluğu tanımlanabilir
@@ -59,9 +63,11 @@ def encode(image_path: str, message: str, output_path: str) -> None:
     if len(payload_bits) > len(flat):
         raise ValueError("Payload görüntü kapasitesini aşıyor.")
 
-    # LSB gömme: & 0xFE ile son biti sıfırla, | bit ile yaz
-    for i, bit in enumerate(payload_bits):
-        flat[i] = (flat[i] & 0xFE) | bit
+    # LSB Eşleştirme (±1): düz değiştirme yerine gerektiğinde rastgele yönde kaydır
+    n = len(payload_bits)
+    bits_arr = np.array(payload_bits, dtype=np.uint8)
+    rng = np.random.default_rng()
+    flat[:n] = lsb_embed(flat[:n], bits_arr, rng)
 
     # Yeniden şekillendir ve kaydet
     stego_pixels = flat.reshape((height, width, 3))
@@ -69,13 +75,15 @@ def encode(image_path: str, message: str, output_path: str) -> None:
     stego_img.save(output_path, format="PNG")  # PNG zorunlu — JPEG LSB'leri bozar
 
     msg_kb = len(msg_bytes) / 1024
-    print(f"✅ Mesaj gömüldü: {output_path}")
+    print(f"Mesaj gömüldü: {output_path}")
     print(f"   Mesaj boyutu : {len(msg_bytes):,} byte ({msg_kb:.2f} KB)")
     print(f"   Kullanılan   : {len(payload_bits):,} bit / {height*width*3:,} bit")
     print(f"   Doluluk oranı: {len(payload_bits)/(height*width*3)*100:.4f}%")
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="LSB Steganografi — Encoder")
     parser.add_argument("image",   help="Kaynak PNG görüntüsü")
     parser.add_argument("message", help="Gizlenecek metin (veya @dosya.txt)")

@@ -2,7 +2,7 @@ __pycache__/
 *.pyc
 .qodo/
 
-# generated demo/output media (regenerate via demo.py / video_demo.py)
+# generated demo/output media (regenerate via demo.py / video_demo.py / audio_demo.py)
 noise.png
 stego.png
 analysis.png
@@ -10,7 +10,10 @@ noise_video.avi
 stego_video.avi
 stego_plain.avi
 stego_enc.avi
+noise_audio.wav
+stego_audio.wav
 gizli_mesaj.txt
+gizli_mesaj_ses.txt
 recovered/
 
 # user workspace + local config

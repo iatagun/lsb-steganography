@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image
 import argparse
 import os
+import sys
 
 
 def generate_noise_image(width: int = 512, height: int = 512, seed: int | None = None) -> Image.Image:
@@ -18,6 +19,8 @@ def generate_noise_image(width: int = 512, height: int = 512, seed: int | None =
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Karıncalı ekran PNG üretici")
     parser.add_argument("--width",  type=int, default=512,  help="Genişlik (piksel)")
     parser.add_argument("--height", type=int, default=512,  help="Yükseklik (piksel)")
