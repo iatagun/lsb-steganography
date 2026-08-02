@@ -13,31 +13,50 @@ Widget yönetimi:
 import sys, os, json, threading, queue, subprocess
 sys.path.insert(0, os.path.dirname(__file__))
 
+import numpy as np
+from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
 # ── Renk Paleti ──────────────────────────────────────────────────────────────
-BG     = "#0b0b12"
-BG2    = "#11111c"
-BG3    = "#18182a"
-BG4    = "#1e1e32"
-BORDER = "#26264a"
-ACC    = "#e84393"
-ACC2   = "#ff6ec7"
-GRN    = "#1de9b6"
-GRN2   = "#69ffda"
-CYAN   = "#7ee8fa"
-GOLD   = "#f7c948"
-DIM    = "#42426a"
-DIM2   = "#6a6a9a"
-FG     = "#d0d0ee"
-FG2    = "#eeeeff"
+# Tema: "gürültüden çözülen sinyal" — karıncalı ekranın kendisi motif.
+# Yapısal gri tonlar soğuk/neredeyse renksiz; TEK bir phosphor (sinyal) rengi
+# marka/aksiyon anlamına gelir. Kroma-kayması renkleri (NOISE_R/NOISE_B) yalnızca
+# statik dokuda kullanılır, hiçbir UI kontrolünde kullanılmaz — cüret tek yerde
+# harcanır. ACC eskiden hem marka hem hata anlamına geliyordu (karışık semantik);
+# artık ERR ayrı bir renk.
+BG     = "#09090c"   # taban — "boşluk"
+BG2    = "#121216"   # panel
+BG3    = "#191920"   # kart gövdesi
+BG4    = "#20202a"   # input / hover yüzeyi
+BORDER = "#2b2b34"   # kıl payı ayraç
+ACC    = "#7bf1c7"   # phosphor — birincil sinyal/marka rengi
+ACC2   = "#b6ffe4"   # parlak phosphor
+ERR    = "#ff5d73"   # sinyal kaybı — hata/tehlike (eskiden ACC'nin taşıdığı anlam)
+GRN    = "#8ee36b"   # başarı
+GRN2   = "#c3ffa8"   # parlak başarı
+CYAN   = "#7ec8e3"   # ikincil/bilgi (çelik-mavi)
+GOLD   = "#e8b64f"   # uyarı
+DIM    = "#3d3d48"   # en sönük
+DIM2   = "#71717f"   # ikincil metin
+FG     = "#d6d6e0"   # birincil metin
+FG2    = "#f1f1f7"   # vurgulu metin
 
-FONT_L = ("Courier New", 11, "bold")
-FONT_M = ("Courier New", 10)
-FONT_B = ("Courier New", 10, "bold")
-FONT_T = ("Courier New", 9)
-FONT_S = ("Courier New", 8)
+NOISE_R = "#ff5f9e"  # kroma-kayması — yalnızca statik banner/doku için
+NOISE_B = "#5fc9ff"  # kroma-kayması — yalnızca statik banner/doku için
+
+# ── Tipografi ────────────────────────────────────────────────────────────────
+# Görsel (display) yüz: Bahnschrift SemiBold — enstrüman/pano yazısı karakteri,
+# başlıklarda ve birincil aksiyon butonlarında kullanılır, ölçülü.
+# Gövde/veri yüzü: Cascadia Mono — teknik ama Courier New'den daha canlı; log,
+# giriş alanları ve tüm veri metninde tutarlı tek aile.
+FONT_DISPLAY = ("Bahnschrift SemiBold", 17)
+FONT_TITLE   = ("Bahnschrift SemiBold", 13)
+FONT_L = ("Bahnschrift SemiBold", 11)
+FONT_M = ("Cascadia Mono", 10)
+FONT_B = ("Cascadia Mono", 10, "bold")
+FONT_T = ("Cascadia Mono", 9)
+FONT_S = ("Cascadia Mono", 8)
 
 CFG_FILE     = os.path.join(os.path.dirname(__file__), ".lstg_config.json")
 MAX_VIDEO_MB = 100
@@ -193,7 +212,7 @@ def pw_strength(pw: str) -> tuple[str, str]:
         any(c.isdigit() for c in pw),
         any(not c.isalnum() for c in pw),
     ])
-    if score <= 1: return "ZAYIF",  ACC
+    if score <= 1: return "ZAYIF",  ERR
     if score <= 3: return "ORTA",   GOLD
     return "GÜÇLÜ", GRN
 
@@ -235,6 +254,83 @@ def hover(w, bg_n, bg_h, fg_n=None, fg_h=None):
     def _on(e):  w.config(bg=bg_h, **({"fg": fg_h} if fg_h else {}))
     def _off(e): w.config(bg=bg_n, **({"fg": fg_n} if fg_n else {}))
     w.bind("<Enter>", _on); w.bind("<Leave>", _off)
+
+
+# ── Statik Sinyal Banner'ı (imza öğesi) ──────────────────────────────────────
+class NoiseBanner(tk.Canvas):
+    """
+    Aracın kendi yaptığı şeyin görsel özeti: canlı, düşük çözünürlüklü,
+    kroma-kaymalı karıncalı gürültü sürekli oynar; üzerinde "LSTG" kelimesi
+    phosphor renginde durur — sinyal gürültüden çözülüyormuş gibi.
+    Düşük dahili çözünürlük + NEAREST büyütme kasıtlı: hem kaba/pikselli
+    dönemsel doku verir hem de CPU'yu düşük tutar (~9 fps yeterli).
+    """
+    BUF_W, BUF_H = 220, 28
+    FPS_MS       = 110
+
+    def __init__(self, parent, height=48, **kw):
+        super().__init__(parent, bg=BG, height=height, highlightthickness=0, **kw)
+        self._rng    = np.random.default_rng()
+        self._photo  = None
+        self._img_id = None
+        self._text_id = None
+        self._alive  = True
+        self.bind("<Destroy>", lambda e: setattr(self, "_alive", False))
+        self.bind("<Configure>", self._on_resize)
+        self._tick()
+
+    def _on_resize(self, _e=None):
+        if self._text_id is not None:
+            self.coords(self._text_id, 18, max(self.winfo_height() // 2, 1))
+
+    def _make_noise(self, w: int, h: int) -> Image.Image:
+        base  = self._rng.integers(20, 235, size=(h, w), dtype=np.uint8).astype(np.int16)
+        shift = max(1, w // 40)
+        r = np.roll(base, shift, axis=1)
+        b = np.roll(base, -shift, axis=1)
+        rgb = np.empty((h, w, 3), dtype=np.uint8)
+        rgb[..., 0] = np.clip((base * 3 + r) // 4, 0, 255).astype(np.uint8)
+        rgb[..., 1] = base.astype(np.uint8)
+        rgb[..., 2] = np.clip((base * 3 + b) // 4, 0, 255).astype(np.uint8)
+        return Image.fromarray(rgb, "RGB")
+
+    def _tick(self):
+        if not self._alive:
+            return
+        self._draw()
+        self.after(self.FPS_MS, self._tick)
+
+    def _draw(self):
+        w, h = self.winfo_width(), self.winfo_height()
+        if w < 4 or h < 4:
+            return
+        img = self._make_noise(self.BUF_W, self.BUF_H).resize((w, h), Image.NEAREST)
+        self._photo = ImageTk.PhotoImage(img)
+        if self._img_id is None:
+            self._img_id = self.create_image(0, 0, image=self._photo, anchor="nw")
+        else:
+            self.itemconfig(self._img_id, image=self._photo)
+        if self._text_id is None:
+            self._text_id = self.create_text(18, h // 2, text="LSTG", fill=ACC,
+                                              font=FONT_DISPLAY, anchor="w")
+        self.tag_raise(self._text_id)
+
+
+# ── Dither Doku Ayracı ────────────────────────────────────────────────────────
+def dither_rule(parent, bg=BG2, color=DIM2, height=2):
+    """
+    Düz 1px çizgi yerine noktalı/dither dokulu ince şerit — LSB'nin kendisinin
+    ürettiği örüntüyü (en az önemli bitin noktalı deseni) çağrıştırır.
+    """
+    c = tk.Canvas(parent, bg=bg, height=height, highlightthickness=0)
+
+    def _redraw(_=None):
+        c.delete("all")
+        w = c.winfo_width()
+        if w > 1:
+            c.create_rectangle(0, 0, w, height, fill=color, outline="", stipple="gray50")
+    c.bind("<Configure>", _redraw)
+    return c
 
 
 # ── Tooltip ──────────────────────────────────────────────────────────────────
@@ -293,7 +389,7 @@ class LogBox(tk.Frame):
             insertbackground=GRN, selectbackground=BG4,
         )
         self._text.pack(fill="both", expand=True, padx=2, pady=4)
-        for tag, color in [("ok", GRN), ("err", ACC), ("warn", GOLD),
+        for tag, color in [("ok", GRN), ("err", ERR), ("warn", GOLD),
                             ("info", FG), ("dim", DIM2), ("cyan", CYAN)]:
             self._text.tag_configure(tag, foreground=color)
 
@@ -337,7 +433,7 @@ def card(parent, title=None, title_color=None, padx=14, pady=8):
         th.pack(fill="x")
         tk.Label(th, text=f"  {title}", bg=BG2, fg=title_color or DIM2,
                  font=FONT_T, anchor="w").pack(side="left", padx=(4, 0), pady=(6, 0))
-        tk.Frame(inner, bg=BORDER, height=1).pack(fill="x", pady=(3, 0))
+        dither_rule(inner).pack(fill="x", pady=(3, 0))
     body = tk.Frame(inner, bg=BG2)
     body.pack(fill="x", padx=padx, pady=pady)
     return body
@@ -402,7 +498,7 @@ class CapBar(tk.Frame):
             self._lbl.config(text="", fg=DIM2)
             return
         pct   = min(used / total, 1.0)
-        color = GRN if pct < 0.6 else (GOLD if pct < 0.9 else ACC)
+        color = GRN if pct < 0.6 else (GOLD if pct < 0.9 else ERR)
         w     = self._canvas.winfo_width()
         if w > 4:
             self._canvas.create_rectangle(0, 0, int(w * pct), 10, fill=color, width=0)
@@ -411,7 +507,7 @@ class CapBar(tk.Frame):
             self._lbl.config(
                 text=f"✗  Sığmıyor!  {used/1024:.0f} KB / {total/1024:.0f} KB  "
                      f"(+{diff/1024:.0f} KB taşıyor)",
-                fg=ACC)
+                fg=ERR)
         else:
             self._lbl.config(
                 text=f"{pct*100:.1f}%  —  {used/1024:.1f} KB / {total/1024:.0f} KB  "
@@ -580,7 +676,7 @@ class HidePanel(ScrollPanel):
         hdr = tk.Frame(p, bg=BG)
         hdr.pack(fill="x", padx=20, pady=(16, 2))
         tk.Label(hdr, text="Veriyi Gizle", bg=BG, fg=FG2,
-                 font=("Courier New", 13, "bold")).pack(side="left")
+                 font=FONT_TITLE).pack(side="left")
         tk.Label(hdr, text="  dosyayı karıncalı videoya göm",
                  bg=BG, fg=DIM2, font=FONT_T).pack(side="left", pady=(3, 0))
         tk.Frame(p, bg=BORDER, height=1).pack(fill="x", padx=20, pady=(2, 4))
@@ -741,7 +837,7 @@ class HidePanel(ScrollPanel):
             self._vid_summary.config(
                 text=f"{n} kare  |  Kapasite: {cap/1024:.0f} KB  |  "
                      f"Video ≈ {est_mb:.0f} MB{warn}",
-                fg=ACC if "ÇOK" in warn else (GOLD if warn else DIM2))
+                fg=ERR if "ÇOK" in warn else (GOLD if warn else DIM2))
             fp = self.embed_file.get()
             if fp and os.path.exists(fp):
                 used = estimate_payload_bytes(fp, self.password.get() or None)
@@ -774,7 +870,7 @@ class HidePanel(ScrollPanel):
         elif pw2 and pw1 == pw2:
             self._pw_match.config(text="  ✓ Eşleşiyor", fg=GRN)
         elif pw2:
-            self._pw_match.config(text="  ✗ Eşleşmiyor", fg=ACC)
+            self._pw_match.config(text="  ✗ Eşleşmiyor", fg=ERR)
         else:
             self._pw_match.config(text="", fg=DIM)
         self._refresh_cap()
@@ -909,7 +1005,7 @@ class RevealPanel(ScrollPanel):
         hdr = tk.Frame(p, bg=BG)
         hdr.pack(fill="x", padx=20, pady=(16, 2))
         tk.Label(hdr, text="Veriyi Ortaya Çıkar", bg=BG, fg=FG2,
-                 font=("Courier New", 13, "bold")).pack(side="left")
+                 font=FONT_TITLE).pack(side="left")
         tk.Label(hdr, text="  stego videodan gizli dosyayı çıkar",
                  bg=BG, fg=DIM2, font=FONT_T).pack(side="left", pady=(3, 0))
         tk.Frame(p, bg=BORDER, height=1).pack(fill="x", padx=20, pady=(2, 4))
@@ -917,7 +1013,7 @@ class RevealPanel(ScrollPanel):
         # ── KART 1: Stego Video ───────────────────────────────────────────────
         c1 = card(p, "①  STEGO VİDEO", CYAN)
         self.stego_in = tk.StringVar(value=cfg.get("stego_out", ""))
-        self._fmt_warn = tk.Label(c1, text="", bg=BG2, fg=ACC, font=FONT_T)
+        self._fmt_warn = tk.Label(c1, text="", bg=BG2, fg=ERR, font=FONT_T)
         file_row(c1, "Stego AVI :", self.stego_in,
                  [("AVI Video", "*.avi"), ("Tüm", "*.*")],
                  initialdir=ws_inbox(),
@@ -983,7 +1079,7 @@ class RevealPanel(ScrollPanel):
         ext = os.path.splitext(path)[1].lower()
         if ext in LOSSY_EXT:
             self._fmt_warn.config(
-                text=f"  ⚠  {ext.upper()} kayıplı sıkıştırma — LSB'ler bozulmuş olabilir!", fg=ACC)
+                text=f"  ⚠  {ext.upper()} kayıplı sıkıştırma — LSB'ler bozulmuş olabilir!", fg=ERR)
         elif ext in LOSSLESS_EXT:
             self._fmt_warn.config(text="  ✓  AVI kayıpsız — LSB korunur", fg=GRN)
         else:
@@ -1120,7 +1216,7 @@ class AboutPanel(ScrollPanel):
         hdr = tk.Frame(p, bg=BG)
         hdr.pack(fill="x", padx=20, pady=(16, 4))
         tk.Label(hdr, text="LSB Steganografisi", bg=BG, fg=FG2,
-                 font=("Courier New", 13, "bold")).pack(side="left")
+                 font=FONT_TITLE).pack(side="left")
         tk.Label(hdr, text="  teknik kılavuz", bg=BG, fg=DIM2, font=FONT_T).pack(side="left", pady=(3, 0))
         tk.Frame(p, bg=BORDER, height=1).pack(fill="x", padx=20, pady=(0, 6))
 
@@ -1208,16 +1304,12 @@ class App(tk.Tk):
         s.map("TScrollbar", background=[("active", BG4)])
 
     def _build(self):
-        # Üst çubuk
-        top = tk.Frame(self, bg=BG, height=46)
+        # Üst çubuk — canlı statik banner (imza öğesi)
+        top = NoiseBanner(self, height=52)
         top.pack(fill="x", side="top")
-        top.pack_propagate(False)
-        tk.Frame(top, bg=ACC, width=4).pack(side="left", fill="y")
-        tk.Label(top, text="  LSTG", bg=BG, fg=ACC,
-                 font=("Courier New", 14, "bold")).pack(side="left", padx=(8, 2))
-        tk.Label(top, text="Steganografi", bg=BG, fg=DIM2, font=FONT_T).pack(side="left")
-        tk.Label(top, text="Ctrl+H  Gizle  |  Ctrl+R  Çıkar  |  Ctrl+I  Bilgi",
-                 bg=BG, fg=DIM, font=FONT_S).pack(side="right", padx=16)
+        hint = tk.Label(self, text="Ctrl+H Gizle  |  Ctrl+R Çıkar  |  Ctrl+I Bilgi",
+                         bg=BG, fg=DIM, font=FONT_S)
+        hint.place(in_=top, relx=1.0, rely=0.5, anchor="e", x=-14)
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
 
         # Workspace çubuğu
