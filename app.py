@@ -381,7 +381,7 @@ class LogBox(tk.Frame):
         clr.pack(side="right", padx=4)
         clr.bind("<Button-1>", lambda _: self.clear())
         hover(clr, BG3, BG4, DIM, CYAN)
-        tk.Frame(inner, bg=BORDER, height=1).pack(fill="x", padx=10, pady=(3, 0))
+        dither_rule(inner, bg=BG3).pack(fill="x", padx=10, pady=(3, 0))
 
         self._text = scrolledtext.ScrolledText(
             inner, height=8, bg=BG3, fg=FG, font=FONT_T,
@@ -679,7 +679,7 @@ class HidePanel(ScrollPanel):
                  font=FONT_TITLE).pack(side="left")
         tk.Label(hdr, text="  dosyayı karıncalı videoya göm",
                  bg=BG, fg=DIM2, font=FONT_T).pack(side="left", pady=(3, 0))
-        tk.Frame(p, bg=BORDER, height=1).pack(fill="x", padx=20, pady=(2, 4))
+        dither_rule(p, bg=BG).pack(fill="x", padx=20, pady=(2, 4))
 
         # ── KART 1: Video Konfigürasyonu ──────────────────────────────────────
         c1 = card(p, "①  VIDEO KONFİGÜRASYONU", CYAN)
@@ -1008,7 +1008,7 @@ class RevealPanel(ScrollPanel):
                  font=FONT_TITLE).pack(side="left")
         tk.Label(hdr, text="  stego videodan gizli dosyayı çıkar",
                  bg=BG, fg=DIM2, font=FONT_T).pack(side="left", pady=(3, 0))
-        tk.Frame(p, bg=BORDER, height=1).pack(fill="x", padx=20, pady=(2, 4))
+        dither_rule(p, bg=BG).pack(fill="x", padx=20, pady=(2, 4))
 
         # ── KART 1: Stego Video ───────────────────────────────────────────────
         c1 = card(p, "①  STEGO VİDEO", CYAN)
@@ -1154,7 +1154,7 @@ class RevealPanel(ScrollPanel):
         th.pack(fill="x")
         tk.Label(th, text="  ✓  BULUNAN DOSYA", bg=BG2, fg=GRN, font=FONT_T,
                  anchor="w").pack(side="left", padx=(4, 0), pady=(6, 0))
-        tk.Frame(inner, bg=GRN, height=1).pack(fill="x", pady=(3, 0))
+        dither_rule(inner, color=GRN).pack(fill="x", pady=(3, 0))
 
         info = tk.Frame(inner, bg=BG2)
         info.pack(fill="x", padx=14, pady=8)
@@ -1167,7 +1167,7 @@ class RevealPanel(ScrollPanel):
             try:
                 with open(path, "r", encoding="utf-8", errors="replace") as f:
                     preview = f.read(600)
-                tk.Frame(inner, bg=BORDER, height=1).pack(fill="x", padx=14)
+                dither_rule(inner).pack(fill="x", padx=14)
                 tk.Label(inner, text="  Önizleme", bg=BG2, fg=DIM2,
                          font=FONT_S, anchor="w").pack(fill="x", padx=14, pady=(4, 0))
                 txt = tk.Text(inner, height=6, bg=BG3, fg=CYAN, font=FONT_T,
@@ -1218,7 +1218,7 @@ class AboutPanel(ScrollPanel):
         tk.Label(hdr, text="LSB Steganografisi", bg=BG, fg=FG2,
                  font=FONT_TITLE).pack(side="left")
         tk.Label(hdr, text="  teknik kılavuz", bg=BG, fg=DIM2, font=FONT_T).pack(side="left", pady=(3, 0))
-        tk.Frame(p, bg=BORDER, height=1).pack(fill="x", padx=20, pady=(0, 6))
+        dither_rule(p, bg=BG).pack(fill="x", padx=20, pady=(0, 6))
 
         sections = [
             (CYAN, "Temel Fikir",
@@ -1263,7 +1263,8 @@ class AboutPanel(ScrollPanel):
             th.pack(fill="x")
             tk.Label(th, text=f"  {title}", bg=BG2, fg=color, font=FONT_B,
                      anchor="w").pack(side="left", padx=(4, 0), pady=(8, 2))
-            tk.Frame(box, bg=color, height=1).pack(fill="x", padx=12)
+            dith = dither_rule(box, color=color)
+            dith.pack(fill="x", padx=12)
             tk.Label(box, text=body, bg=BG3, fg=FG, font=FONT_T,
                      justify="left", anchor="w", padx=16, pady=10).pack(fill="x", padx=12, pady=(0, 8))
         tk.Label(p, text="", bg=BG).pack()
